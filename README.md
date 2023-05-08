@@ -1,4 +1,5 @@
 = Universal =
+
 [Config]
 * Save Config
 * Load Config
@@ -32,7 +33,10 @@
 - Choose what part to shoot at when mouse is over it
 * Trigger Only When Aiming
 
+
+
 = Phantom Forces =
+
 [ESP]
 * Visible Check
 - Account for Bullet Penetration Depth

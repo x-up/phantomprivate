@@ -9,6 +9,9 @@ local mainCameraObject = getModule("MainCameraObject"); if not mainCameraObject 
 local particleObject = getModule("particle"); if not particleObject then return end
 local physicsObject = getModule("physics"); if not physicsObject then return end
 local raycastObject = getModule("Raycast"); if not raycastObject then return end
+local weaponControllerInterface = getModule("WeaponControllerInterface"); if not weaponControllerInterface then return end
+
+local weaponControllerObject = debug.getupvalue(rawget(weaponControllerInterface, "WeaponControllerObject"), 1)
 local particlenew = rawget(particle, "new")
 
 local solve = filtergc("function", { IgnoreSyn = true;
@@ -18,6 +21,25 @@ local solve = filtergc("function", { IgnoreSyn = true;
 
 
 local closestPlayer = playerObject --// this will be handled somewhere else in the main script
+
+
+--// get weapon stats
+local function setWeaponStats(weaponControllerObject)
+	local activeWeaponRegistry = rawget(weaponControllerObject, "_activeWeaponRegistry")
+	primaryGunStats = rawget(rawget(activeWeaponRegistry, 1), "_weaponData")
+	secondaryGunStats = rawget(rawget(activeWeaponRegistry, 2), "_weaponData")
+end
+
+local primaryGunStats, secondaryGunStats; do
+
+local loadFirearms; loadFirearms = hookfunction(rawget(weaponControllerObject, "new"), function(...)
+	local activeWeaponRegistry = loadFirearms(...)
+
+	setWeaponStats(activeWeaponRegistry)
+
+	return activeWeaponRegistry
+end)
+
 
 
 
@@ -40,7 +62,7 @@ local function raycast(origin, direction) --// ripped from pf
 end
 
 local function bulletCheck(part, penetrationdepth)
-	local depth = 9e9
+	local depth = 0
 	local origin, direction = camera.CFrame.Position, part.Position
 	if not origin or not direction then return false end
 
@@ -51,10 +73,9 @@ local function bulletCheck(part, penetrationdepth)
 
 	local hit = raycast(origin, direction)
 	while hit and hit.Instance do
-		if hit.Instance then
-			local exitHit = workspace:Raycast(origin + direction, -direction, raycastParams)
-			
-		end
+		local exitHit = workspace:Raycast(hit.Position + direction, -direction.Unit * 1e5, raycastParams)
+		local hitDepth = math.abs((hit.Position - exitHit.Position).Magnitude)
+		depth += hitDepth
 	end
 	
 	return depth < penetrationdepth

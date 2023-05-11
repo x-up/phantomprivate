@@ -44,8 +44,8 @@ end)
 
 
 --// penetration checks
-local function raycast(origin, direction) --// ripped from pf
-	local ignore = {workspace.Terrain, workspace.Ignore, workspace.CurrentCamera}
+local function raycast(origin, direction, ignorePart) --// ripped from pf
+	local ignore = {workspace.Terrain, workspace.Ignore, workspace.CurrentCamera, ignorePart}
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterDescendantsIntances = ignore
 	raycastParams.IgnoreWater = true
@@ -64,7 +64,7 @@ end
 local function bulletCheck(part, penetrationdepth)
 	local depth = 0
 	local origin, direction = camera.CFrame.Position, part.Position
-	if not origin or not direction then return false end
+	if not origin or not direction then return depth end
 
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Whitelist
@@ -76,6 +76,7 @@ local function bulletCheck(part, penetrationdepth)
 		local exitHit = workspace:Raycast(hit.Position + direction, -direction.Unit * 1e5, raycastParams)
 		local hitDepth = math.abs((hit.Position - exitHit.Position).Magnitude)
 		depth += hitDepth
+		hit = raycast(hit.Position, direction, hit.Instance)
 	end
 	
 	return depth < penetrationdepth

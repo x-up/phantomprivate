@@ -617,9 +617,7 @@ local Player = {}; do
 			self.RootPart = self:GetRootPart()
 			if not self.RootPart then self:Died() return end
 		end
-		self.LastCFrame = self.RootPart.CFrame
-		local rootVelocity = (self.LastCFrame - self.RootPart.CFrame)
-		self.PredictionCFrame =  * 
+		
 		self.Distance = (self.RootPart.Position - camera.CFrame.Position).Magnitude
 
 		local inGameName = "";

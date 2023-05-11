@@ -720,17 +720,6 @@ local Player = {}; do
 
 		local displayName = (self.Player.DisplayName and #self.Player.DisplayName > 0) and " ["..self.Player.DisplayName.."]" or ""
 
-
-		Text = {
-			GameName = true;
-			DisplayName = false;
-			LowerCase = true;
-			Distance = true;
-			Health = true;
-			HeldItem = true;
-		}
-
-
 		--// update text
 		local newText = self.Name..(settings.ESP.Text.DisplayName and displayName or "")..(settings.ESP.Text.GameName and inGameName or "")..(settings.ESP.Text.Distance and "\n["..math.floor((camera.CFrame.p - self.RootPart.Position).Magnitude).."] [" or "")..(settings.ESP.Text.Health and math.floor(self.Health).."/"..math.floor(self.MaxHealth).."]\n[" or "")..settings.ESP.Text.HeldItem and self:GetHeldTool().."]" or ""
 		Text.Text = newText

@@ -95,7 +95,7 @@ local function trajectory(acceleration, position, bulletspeed)
 	local diff = position - cameraCfr; acceleration = -acceleration
 
 	local var1, var2, var3, var4 = solve(dot(acceleration, acceleration) / 4, 0, dot(acceleration, diff) - bulletspeed * bulletspeed, 0, dot(diff, diff))
-	local value = var1 and var1 > 0 or var2 and var2 > 0 or var3 and var3 > 0 or var4 and var4 > 0
+	local value = var1 > 0 and var1 or var2 > 0 and var2 or var3 > 0 and var3 or var4 and var4 > 0
 
 	local ret1 = acceleration * value / 2 + diff / value, value
 end

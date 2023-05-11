@@ -8,7 +8,7 @@ local players = game:GetService("Players")
 local localPlayer = players.LocalPlayer
 local mouse = localPlayer:GetMouse()
 
-local runService = game:GetService("RunService")
+local runService, tweenSerivce = game:GetService("RunService"), game:GetService("TweenService")
 
 local camera = game:GetService("Workspace").CurrentCamera
 local getPartsObscuringTarget = camera.getPartsObscuringTarget; getPartsObscuringTarget = function(...) getPartsObscuringTarget(camera, ...) end
@@ -16,12 +16,14 @@ local viewportSize = camera.ViewportSize
 
 local highlightFolder = Instance.new("Folder"); highlightFolder.Name = syn.crypto.random(math.random(12, 16)); highlightFolder.Parent = gethui()
 
+local fontFolderPath, settingsFolderPath = "phantom/private/fonts/", "phantom/private/settings/"
+
 local textFont, fontSize = nil, 13; do
-	if not isfolder("x_up/fonts") then
-		makefolder("x_up/fonts")
+	if not isfolder(fontFolderPath) then
+		makefolder(fontFolderPath)
 	end
 	local function getFont(fontName)
-		local filePath, font = "x_up/fonts/"..fontName..".otf", nil
+		local filePath, font = "fontFolderPath"..fontName..".otf", nil
 		if not isfile(filePath) then
 			font = game:HttpGet("http://phantomgui.xyz/dev/espfonts/"..fontName..".otf")
 			writefile(filePath, font)
@@ -59,6 +61,7 @@ local playerList, connects, playerTable, customCharacterFuncs, colors, games, se
 		Tracers = false;
 		Skeleton = true;
 		Boxes = false;
+		FontSize = 13;
 
 		Text = {
 			GameName = true;
@@ -82,7 +85,8 @@ local playerList, connects, playerTable, customCharacterFuncs, colors, games, se
 		TeamCheck = true;
 		Wallcheck = true;
 		BulletPenCheck = true;
-		SmoothingType = "Linear";
+		EasingStyle = "Linear";
+		EasingDirection = "InOut";
 
 		AimPart = "Head";
 		HeadshotPercentage = 1;
@@ -91,7 +95,7 @@ local playerList, connects, playerTable, customCharacterFuncs, colors, games, se
 		XRandomization = 3;
 		YRandomization = 3;
 		
-		Smoothing = 1;
+		Smoothing = 0;
 		WaitForZoomIn = true;
 		ZoomInDelay = 0.15;
 
@@ -152,115 +156,35 @@ getgenv().Destroy = function()
 	unloaded = true
 end
 
+local fileList = {}
+for i,v in {"ESP", "Aimbot"} do
+	local pathName = settingsFolderPath..v:lower()
+	if not isfolder(pathName) then
+		makefolder(pathName)
+	end
+	if not isfile(pathName.."/Default.json") then 
+		writefile(pathName.."/Default.json", game:GetService("HttpService"):JSONEncode(settings[v])) 
+	end
+end
+local function setupFileList() 
+	local fileList = {}
+	for i,v in {"esp", "aimbot"} do
+		local tempList = listfiles(settingsFolderPath..v)
+		for i,v in tempList do
+			fileList[#filtList+1] = v:split("\\")[4]:gsub(".json", "") 
+		end
+	end
+end
 
 local customGames = {
 	[1087859240] = { -- rogue / deepwoken
 		init = function()
-			customCharacterFuncs.getDisplayName = function(player)
-				local character = player.Character; if not character then return "" end
-				local humanoid = character:FindFirstChild("Humanoid"); if not humanoid then return "" end
-				return self.Humanoid.DisplayName:split("\n")[1]
-			end
-		end
-	};
-	[113491250] = { -- phantom forces
-		init = function()
-			local actor, actorEvent
-			for i,v in getactors() do if v.Name == "lol" then actor = v break end end; if not actor then return error'ERROR [PF-A]' end
-			actorEvent = getluastate(actor).Event
 
-			playerTable = {}
-			customCharacterFuncs.characterAdded = SynSignal.new()
-			customCharacterFuncs.characterRemoving = SynSignal.new()
-
-			connects["pfUpdateEvent"] = actorEvent:Connect(function(event, ...)
-				local args = {...}
-				if event == "Update" then
-					playerTable = args[1]
-				elseif event == "CharacterAdded" then
-					customCharacterFuncs.characterAdded:Fire(args[2], args[3])
-				elseif event == "CharacterRemoving" then
-					customCharacterFuncs.characterRemoving:Fire(args[2])
-				end
-			end)
-
-			syn.run_on_actor(actor, [[
-				local connects = {}
-				local eventTable = {}
-
-				local actorEvent = getluastate(actor).Event
-
-				local req = getrenv().shared.require
-				local modules = debug.getupvalue(req, 1); if not modules then return error'ERROR [PF-B]' end
-				local _cache = rawget(modules, "_cache"); if not _cache then return error'ERROR [PF-C]' end
-				local playerStatusEvents = rawget(rawget(_cache, "PlayerStatusEvents"), "module"); if not playerStatusEvents then return error'ERROR [PF-D]' end
-				local repInterface = rawget(rawget(_cache, "ReplicationInterface"), "module"); if not repInterface then return error'ERROR [PF-E]' end
-				local bulletCheck = rawget(rawget(_cache, "BulletCheck"), "module"); if not repInterface then return error'ERROR [PF-E]' end
-
-				local onPlayerDied, onPlayerSpawned = rawget(playerStatusEvents, "onPlayerDied"), rawget(playerStatusEvents, "onPlayerSpawned"); if not onPlayerDied or not onPlayerSpawned then return error'ERROR [PF-F]' end
-
-				local playerTable = debug.getupvalue(rawget(repInterface, "getEntry"), 1); if not playerTable then return error'ERROR [PF-G]' end
-
-				local function getEntry(plr) return playerTable[plr] end
-
-				local function isAlive(entry) return rawget(entry, "_alive") end
-
-				local function getCharacterModel(entry)
-					if typeof(entry) == "Instance" and entry:IsA("Player") then entry = getEntry(entry) end; if not entry then return end
-					return isAlive(entry) and rawget(rawget(entry, "_thirdPersonObject"), "_character")
-				end
-
-				local function getPlayerHealth(entry)
-					if typeof(entry) == "Instance" and entry:IsA("Player") then entry = getEntry(entry) end; if not entry then return end
-					local healthState = rawget(entry, "_healthstate"); if not healthState then return 0, 100 end
-					return rawget(healthState, "health0"), rawget(healthState, "maxhealth")
-				end
-
-				connects["CharacterAdded"] = onPlayerSpawned:Connect(function(player)
-					actorEvent:Fire("CharacterAdded", player, getCharacterModel(entry))
-				end)
-
-				connects["CharacterRemoving"] = onPlayerDied:Connect(function(player)
-					actorEvent:Fire("CharacterRemoving", player)
-				end)
-
-				connects["PFUpdate"] = game:GetService("RunService").RenderStepped:Connect(function()
-					for player, entry in playerTable do
-						local health, maxHealth = getPlayerHealth(entry)
-
-						eventTable[player] = {
-							Character = getCharacterModel(entry);
-							Health = health;
-							MaxHealth = maxHealth;
-							Alive = isAlive(entry);
-							Velocity = rawget(rawget(entry, "_velspring"), "t")
-						}
-					end
-					actorEvent:Fire("Update", eventTable)
-				end)
-
-				connects["pfActorEvent"] = actorEvent:Connect(function(event, ...)
-					if event == "Destroy" then
-						for i,v in connects do v:Disconnect() end
-						table.clear(connects)
-						table.clear(eventTable)
-					end
-				end)
-			]])
-		end;
-		getCharacter = function(player) 
-			local entry = playerTable[player];
-			return entry and entry.Character
-		end;
-		getRoot = function(character) 
-			return character:WaitForChild("Torso", 3) 
-		end;
-		getHealth = function(player) 
-			local entry = playerTable[player];
-			return entry and entry.Health or 0, entry and entry.MaxHealth or 100
-		end;
-		getPredictedPosition = function(player)
-			
+		end,
+		getDisplayName = function(player)
+			local character = player.Character; if not character then return "" end
+			local humanoid = character:FindFirstChild("Humanoid"); if not humanoid then return "" end
+			return self.Humanoid.DisplayName:split("\n")[1]
 		end
 	};
 	[1168263273] = { -- bad business
@@ -329,6 +253,13 @@ local Aimbot = {}; do
 			Visible = false;
 			WallsInbetween = {};
 		}
+		self.MouseLocation = UserInputService:GetMouseLocation()
+
+		self.Connects = {
+			["RenderStepped"] = runService.RenderStepped:Connect(function()
+				self.MouseLocation = UserInputService:GetMouseLocation()
+			end)
+		}
 
 		return self
 	end
@@ -339,6 +270,7 @@ local Aimbot = {}; do
 	end
 
 	function Aimbot:WorldToScreen(part)
+		if not part then return Vector2.new(0,0), false end
 		local screenPoint = worldtoscreen({part.Position})[1]
 		return screenPoint, self:IsOnScreen(screenPoint)
 	end
@@ -377,43 +309,20 @@ local Aimbot = {}; do
 		return closestPlayer
 	end
 
-	function Aimbot:AimTowardsPart(part, data)
-		if data then
-			local WindForce = Vector2.zero
-			local Velocity = Vector2.zero
-			while (true) do
-				-- // Check distance
-				local Distance = (Data.Destination - Data.Start).Magnitude
-				if (Distance < 1) then
-					break
-				end
+	function Aimbot:AimTowardsPart(part)
+		local point, visible = self:WorldToScreen(part)
+		if not visible then return end
 
-				-- // Vars
-				local FM = math.min(Data.Fluctuation, Distance)
+		local MouseLocation = self.MouseLocation
 
-				-- // Random wind
-				WindForce = WindForce / sqrt3
-				if (Distance >= Data.DampedDistance) then
-					WindForce = WindForce + self:RandomWind(FM)
-				else
-					Data.StepSize = Data.StepSize < 3 and (math.random() * 3 + 3) or (Data.StepSize / sqrt5)
-				end
+		local smoothingX = math.clamp((100 - settings.Aimbot.SmoothingX) / 100, 0.01, 1)
+		local smoothingY = math.clamp((100 - settings.Aimbot.SmoothingY) / 100, 0.01, 1)
 
-				-- // Workout velocity
-				local GravityForce = Data.Gravity * (Data.Destination - Data.Start) / Distance
-				Velocity = Velocity + WindForce + GravityForce
+		local easingStyle, easingDirection, randomization = Enum.EasingStyle[settings.Aimbot.EasingStyle], Enum.EasingDirection[settings.Aimbot.EasingDirection], settings.Aimbot.RealisticMovement
+		local alphaX = tweenSerivce:GetValue(smoothingX, easingStyle, easingDirection)
+		local alphaY = tweenSerivce:GetValue(smoothingY, easingStyle, easingDirection)
 
-				-- // Velocity clip threshold
-				if (Velocity.Magnitude > Data.StepSize) then
-					local VelocityClip = Data.StepSize / 2 + math.random() * Data.StepSize / 2
-					Velocity = Velocity.Unit * VelocityClip
-				end
-
-			end
-
-			-- // Return
-			return Data.Start
-		end
+		mousemoveabs(MouseLocation.X:lerp(alphaX) + randomization and settings.Aimbot.XRandomization or 0, mouseLocation.Y:lerp(alphaY) + randomization and settings.Aimbot.YRandomization or 0)
 	end
 end
 local aimObj = Aimbot.new()
@@ -728,7 +637,7 @@ local Player = {}; do
 		--// update box transparency
 		local newOpacity = math.clamp(1 - self.Distance / settings.ESP.TransparencyRolloff, 0.2, 1)
 
-		self.DistanceFromMouse = (Vector2.new(mouse.X, mouse.Y + 36) - self.Points.RootPart.ScreenPos).Magnitude
+		self.DistanceFromMouse = (aimObj.MouseLocation - self.Points.RootPart.ScreenPos).Magnitude
 		if settings.ESP.MouseDistanceRolloff <= 200 then
 			newOpacity = math.clamp(1 - self.DistanceFromMouse / settings.ESP.MouseDistanceRolloff, newOpacity, 1)
 		end
@@ -767,30 +676,6 @@ local Player = {}; do
 end
 --// end esp
 
-
-local sqrt5, sqrt3 = math.sqrt(5), math.sqrt(3)
-local WindMouse = {}; do
-	WindMouse.__index = WindMouse
-
-	function WindMouse.new()
-		local self = {}; setmetatable(self, WindMouse)
-
-		self.DefaultData = {
-			Gravity = 9;
-			Flucation = 3;
-			StepSize = 15;
-			DampedDistance = 12;
-		}
-		self.Random = Random.new(math.randomseed(tick()))
-
-
-		return self
-	end
-
-	function WindMouse:RandomWind(FM)
-		return (2 * self.Random:NextNumber() - 1) * FM / sqrt5
-	end
-end
 
 runService:BindToRenderStep("x_upESP", 200, function()
 	for i,v in playerList do
@@ -1034,6 +919,53 @@ local boxesToggle = uiObject:CreateObject({
 		settings.ESP.Boxes = value
 	end;
 })
+uiObject:CreateLabel("Text Settings", "ESP")
+
+local gameNameToggle = uiObject:CreateObject({
+	Tab = "ESP";
+	Name = "In Game Name";
+	Type = "CheckBox";
+	Properties = { Value = settings.ESP.Text.GameName };
+	Callback = function(value)
+		settings.ESP.Text.GameName = value
+	end;
+})
+local displayNameToggle = uiObject:CreateObject({
+	Tab = "ESP";
+	Name = "Display Name";
+	Type = "CheckBox";
+	Properties = { Value = settings.ESP.Text.DisplayName };
+	Callback = function(value)
+		settings.ESP.Text.DisplayName = value
+	end;
+})
+local distanceToggle = uiObject:CreateObject({
+	Tab = "ESP";
+	Name = "Distance";
+	Type = "CheckBox";
+	Properties = { Value = settings.ESP.Text.Distance };
+	Callback = function(value)
+		settings.ESP.Text.Distance = value
+	end;
+})
+local showHealthToggle = uiObject:CreateObject({
+	Tab = "ESP";
+	Name = "Show Health";
+	Type = "CheckBox";
+	Properties = { Value = settings.ESP.Text.Health };
+	Callback = function(value)
+		settings.ESP.Text.Health = value
+	end;
+})
+local heldItemToggle = uiObject:CreateObject({
+	Tab = "ESP";
+	Name = "Held Item";
+	Type = "CheckBox";
+	Properties = { Value = settings.ESP.Text.HeldItem };
+	Callback = function(value)
+		settings.ESP.Text.HeldItem = value
+	end;
+})
 
 --// ui sliders
 uiObject:CreateLabel("Sliders", "ESP")
@@ -1066,14 +998,25 @@ local mouseDistanceRolloffSlider = uiObject:CreateObject({
 		settings.ESP.MouseDistanceRolloff = value
 	end;
 })
+
+local fontSizeSlider = uiObject:CreateObject({ 
+	Tab = "ESP";
+	Name = "Font Size";
+	Type = "IntSlider";
+	Properties = {
+		Min = 8;
+		Max = 32;
+		Value = settings.ESP.Text.FontSize;
+		Clamped = true;
+	};
+	Callback = function(value)
+		settings.ESP.Text.FontSize = value
+		textFont.PixelSize = value
+	end;
+})
 uiObject.Tabs["ESP"]:Separator()
 
 --// settings
-local fileList = {}
-local function setupFileList() fileList = listfiles("x_up/settings/esp/") for i,v in fileList do fileList[i] = v:split("\\")[4]:gsub(".json", "") end end
-if not isfolder("x_up/settings/esp/") then makefolder("x_up/settings/esp/") end
-if not isfile("x_up/settings/esp/Default.json") then writefile("x_up/settings/esp/Default.json", game:GetService("HttpService"):JSONEncode(espSettings)) end
-
 setupFileList()
 
 local selectedSettings, newName, textBox = 1, "", nil

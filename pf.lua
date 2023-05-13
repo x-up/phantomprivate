@@ -1,18 +1,34 @@
-local req = getrenv().shared.require
-local modules = debug.getupvalue(req, 1); if not modules then return error'ERROR [PF-B]' end
-local _cache = rawget(modules, "_cache"); if not _cache then return error'ERROR [PF-C]' end
+local players = game:GetService("Players")
+local localPlayer = players.LocalPlayer
+
+local modules = debug.getupvalue(getrenv().shared.require, 1); if not modules then return error'ERROR [PF-A]' end
+local _cache = rawget(modules, "_cache"); if not _cache then return error'ERROR [PF-B]' end
 local function getModule(name)
 	return rawget(rawget(_cache, name), "module")
 end
 
-local mainCameraObject = getModule("MainCameraObject"); if not mainCameraObject then return end
-local particleObject = getModule("particle"); if not particleObject then return end
-local physicsObject = getModule("physics"); if not physicsObject then return end
-local raycastObject = getModule("Raycast"); if not raycastObject then return end
-local weaponControllerInterface = getModule("WeaponControllerInterface"); if not weaponControllerInterface then return end
+local pfModules = {}; do
+	for i,v in getnilinstances() do
+		if v:IsA("Module") then
+			local module = pcall(function() return getmodule(v.Name) end)
+			if module then
+				pfModules[v.Name] = module
+			end
+		end
+	end
+end
 
-local weaponControllerObject = debug.getupvalue(rawget(weaponControllerInterface, "WeaponControllerObject"), 1)
-local particlenew = rawget(particle, "new")
+local localPlayerValues = {
+	isAlive = false;
+	weaponController = nil;
+}
+
+local networksend = rawget(pfModules["network"], "send")
+local weaponControllerInterface = debug.getupvalue(rawget(pfModules["WeaponControllerInterface"], "spawn"), 1)
+
+local particlenew = rawget(pfModules["particle"], "new")
+local tPOnew = rawget(pfModules["ThirdPersonObject"], "new")
+local newWeapon = rawget(weaponControllerInterface, "new")
 
 local solve = filtergc("function", { IgnoreSyn = true;
 	Name = "solve";
@@ -24,21 +40,16 @@ local closestPlayer = playerObject --// this will be handled somewhere else in t
 
 
 --// get weapon stats
-local function setWeaponStats(weaponControllerObject)
-	local activeWeaponRegistry = rawget(weaponControllerObject, "_activeWeaponRegistry")
-	primaryGunStats = rawget(rawget(activeWeaponRegistry, 1), "_weaponData")
-	secondaryGunStats = rawget(rawget(activeWeaponRegistry, 2), "_weaponData")
-end
+local activeWeaponRegistry;
 
-local primaryGunStats, secondaryGunStats; do
+local loadFirearms; loadFirearms = hookfunction(newWeapon, function(...)
+	local ret = loadFirearms(...)
 
-local loadFirearms; loadFirearms = hookfunction(rawget(weaponControllerObject, "new"), function(...)
-	local activeWeaponRegistry = loadFirearms(...)
+	activeWeaponRegistry = ret
 
-	setWeaponStats(activeWeaponRegistry)
-
-	return activeWeaponRegistry
+	return ret
 end)
+
 
 
 
@@ -87,6 +98,44 @@ end
 
 
 
+--// third person object
+local fakeReplicationObject; do
+	local fakePlayer = Instance.new("Player")
+	fakeReplicationObject = rawget(pfModules["ReplicationObject"], "new")(fakePlayer)
+	rawset(fakeReplicationObject, "_player", localPlayer)
+end
+local function createThirdPersonObject()
+	local fakeThirdPersonObject;
+	if activeWeaponRegistry then
+		local weaponReg = rawget(fakeReplicationObject, "_activeWeaponRegistry")
+
+		for i = 1, 4 do
+			local weapon = rawget(activeWeaponRegistry, i)
+			local tbl = { weaponName = rawget(weapon, "_weaponName"); weaponData = rawget(weapon, "_weaponData"); }
+
+			local attachmentData = rawget(weapon, "_weaponAttachments"); if attachmentdata then tbl["attachmentData"] = attachmentdata end
+			local camoData = rawget(weapon, "_camoList"); if camoData then tbl["camoData"] = camoData end
+
+			rawset(weaponReg, i, tbl)
+		end
+
+		fakeThirdPersonObject = tPOnew(fakePlayer, nil, fakeReplicationObject)
+		rawset(fakeReplicationObject, "_thirdPersonObject", fakeThirdPersonObject)
+		rawget(fakeThirdPersonObject, "equip")(1, true)
+		rawset(fakeReplicationObject, "_alive", true)
+	end
+
+	return fakeThirdPersonObject
+end
+
+local fakeThirdPersonObject = createThirdPersonObject()
+
+
+
+
+
+
+
 --// silent aim
 
 local dot = Vector3.zero.Dot;
@@ -100,10 +149,161 @@ local function trajectory(acceleration, position, bulletspeed)
 	local ret1 = acceleration * value / 2 + diff / value, value
 end
 
+
+
+
+
+
+--// hooks
 local oldParticleNew; oldParticleNew = hookfunction(particlenew, function(args)
 	if args["penetrationdepth"] and closestPlayer and closestPlayer[settings.Aimbot.HitPart] then
 		args["position"] = closestPlayer[settings.Aimbot.HitPart].position
 	end
 
 	return unpack(args)
+end)
+
+local oldNetworkSend; oldNetworkSend = hookfunction(networksend, function(self, num, type, ...)
+	local args = {...}
+
+	if type == "repupdate" then
+		if localPlayerValues.isAlive then
+			if fakeReplicationObject then
+				local pos, angles = args[1], args[2]
+				local time = pfModules["network"]:getTime()
+				local _tick = tick()
+				local velocity = Vector3.zero
+
+				if fakeReplicationObject._receivedPosition and fakeReplicationObject._receivedFrameTime then
+					velocity = (pos - fakeReplicationObject._receivedPosition) / (_tick - fakeReplicationObject._receivedFrameTime);
+				end
+				
+				local broken = false
+				if fakeReplicationObject._lastPacketTime and time - fakeReplicationObject._lastPacketTime > 0.5 then
+					broken = true
+					fakeReplicationObject._breakcount = fakeReplicationObject._breakcount + 1
+				end
+
+				fakeReplicationObject._smoothReplication:receive(time, _tick, {
+					t = _tick, 
+					position = pos;
+					velocity = velocity;
+					angles = angles;
+					breakcount = fakeReplicationObject._breakcount;
+				}, broken);
+
+				fakeReplicationObject._updaterecieved = true
+				fakeReplicationObject._receivedPosition = pos
+				fakeReplicationObject._receivedFrameTime = _tick
+				fakeReplicationObject._lastPacketTime = time
+				fakeReplicationObject:step(3, true)
+			end
+		else
+			if fakeThirdPersonObject then
+                fakeThirdPersonObject:popCharacterModel():Destroy()
+                fakeReplicationObject:despawn()
+            end
+		end
+	end
+
+	if type == "spawn" then
+
+
+		if fakeThirdPersonObject then
+			fakeThirdPersonObject:popCharacterModel():Destroy()
+			fakeReplicationObject:despawn()
+		end
+		task.spawn(function()
+			if not activeWeaponRegistry then repeat task.wait() until activeWeaponRegistry end
+			fakeThirdPersonObject = createThirdPersonObject()
+		end)
+	end
+
+	if type == "swapweapon" then
+		local groundWeapon, weaponIndex = args[1], args[2]
+
+
+		if fakeThirdPersonObject then
+			if weaponIndex > 2 then
+				local weaponValue = groundWeapon.Knife.Value
+				fakeReplicationObject._activeWeaponRegistry[weaponIndex] = {
+					weaponName = weaponValue;
+					weaponData = pfModules["ContentDatabase"].getWeaponData(weaponValue);
+				}
+			else
+				local weaponValue = groundWeapon.Gun.Value
+				fakeReplicationObject._activeWeaponRegistry[weaponIndex] = {
+					weaponName = weaponValue;
+					weaponData = pfModules["ContentDatabase"].getWeaponData(weaponValue);
+				}
+			end
+		end
+	end
+
+	if type == "newbullets" then
+
+
+		if fakeThirdPersonObject then
+			fakeThirdPersonObject:kickWeapon()
+		end
+	end
+
+	if command == "stab" then
+
+
+		if fakeThirdPersonObject then
+			fakeThirdPersonObject:stab()
+		end
+	end
+
+	if command == "sprint" then
+
+
+		if fakeThirdPersonObject then
+			fakeThirdPersonObject:setSprint(args[1])
+		end
+	end
+
+	if command == "stance" then
+		local newStance = args[1]
+
+
+		if fakeThirdPersonObject then
+			fakeThirdPersonObject:setAim(newStance)
+		end
+	end
+
+	if command == "aim" then
+		local newAim = args[1]
+
+
+		if fakeThirdPersonObject then
+			fakeThirdPersonObject:setAim(newAim)
+		end
+	end
+
+	if command == "equip" then
+		local weaponIndex = args[1]
+		local method = weaponIndex == 3 and "equipMelee" or "equip"
+
+		if fakeThirdPersonObject then
+			
+
+			local equipWeapon = fakeThirdPersonObject[method]
+			equipWeapon(fakeThirdPersonObject, weaponIndex)
+		end
+	end
+
+	if command == "forcereset" then
+
+
+		if fakeThirdPersonObject then
+			fakeThirdPersonObject:popCharacterModel():Destroy()
+			fakeReplicationObject:despawn()
+		end
+	end
+
+	
+
+	return oldNetworkSend(self, num, type, unpack(args))
 end)

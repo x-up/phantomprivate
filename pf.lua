@@ -1,31 +1,108 @@
 local players = game:GetService("Players")
 local localPlayer = players.LocalPlayer
+local gameSettings = settings[game.GameId]
 
-local modules = debug.getupvalue(getrenv().shared.require, 1); if not modules then return error'ERROR [PF-A]' end
-local _cache = rawget(modules, "_cache"); if not _cache then return error'ERROR [PF-B]' end
-local function getModule(name)
-	return rawget(rawget(_cache, name), "module")
-end
+local PhantomForces = {}; do
+	PhantomForces.__index = PhantomForces
 
-local pfModules = {}; do
-	for i,v in getnilinstances() do
-		if v:IsA("Module") then
-			local module = pcall(function() return getmodule(v.Name) end)
-			if module then
-				pfModules[v.Name] = module
+	function PhantomForces.new()
+		local self = {}; setmetatable(self, PhantomForces)
+
+		self.ModuleList = debug.getupvalue(getrenv().shared.require, 1)
+		self.ModuleCache = rawget(self.ModuleList, "_cache")
+		self.Hooks = {}
+		self.LocalPlayerValues = {}
+		self.Modules = self:GetModules()
+		self.Functions = {}
+		self.ThirdPersonObject = ThirdPersonObject.new();
+
+		return self
+	end
+
+	function PhantomForces:GetModule(name)
+		local cachedModule = rawget(self.ModuleCache, name); if not cachedModule then return false end;
+		return rawget(cachedModule, "module") or false
+	end
+
+	function PhantomForces:GetModules()
+		local moduleList = {}
+		for i,v in getnilinstances() do
+			if v:IsA("ModuleScript") then
+				local module = self:GetModule(v.Name)
+				if module then
+					moduleList[v.Name] = module
+				end
 			end
 		end
+		return moduleList
+	end
+
+	function PhantomForces:Destroy()
+		for i,v in self.Hooks do restorefunction(v) end
+		for i,v in self do if typeof(v) == "table" then table.clear(v) v = nil end
+		self.ThirdPersonObject:Destroy()
+
+		self = nil
+	end
+end
+local phantomForces = PhantomForces.new()
+
+local ThirdPersonObject = {}; do
+	ThirdPersonObject.__index = ThirdPersonObject
+
+	function ThirdPersonObject.new()
+		local self = {}; setmetatable(self, ThirdPersonObject)
+
+		self.FakePlayer = self:CreatePlayer()
+		self.ReplicationObject = self:CreateReplicationObject(self.FakePlayer)
+		self.ThirdPersonObject = self:CreateThirdPersonObject(self.ReplicationObject)
+
+		return self
+	end
+
+	function ThirdPersonObject:CreatePlayer()
+		local fakePlayer = Instance.new("Player")
+		fakePlayer.Name = tostring(math.random(1, 999999999))
+		fakePlayer.Parent = game:GetService("Players")
+		return fakePlayer
+	end
+
+	function ThirdPersonObject:CreateReplicationObject(fakePlayer)
+		local repObject = phantomForces.Modules.ReplicationObject:new(fakePlayer)
+		rawset(repObject, "_player", localPlayer)
+		fakePlayer:Destroy()
+		return repObject
+	end
+
+	function ThirdPersonObject:CreateThirdPersonObject(repObject)
+		local weaponRegistry = phantomForces.LocalPlayerValues.weaponRegistry; if not weaponRegistry then return nil end
+		
+		local fakeWeaponRegistry = rawget(repObject, "_activeWeaponRegistry")
+		for i = 1, 4 do
+			local weapon = rawget(weaponRegistry, i)
+			local tbl = { weaponName = rawget(weapon, "_weaponName"); weaponData = rawget(weapon, "_weaponData"); }
+
+			local attachmentData = rawget(weapon, "_weaponAttachments"); if attachmentdata then tbl["attachmentData"] = attachmentdata end
+			local camoData = rawget(weapon, "_camoList"); if camoData then tbl["camoData"] = camoData end
+
+			rawset(fakeWeaponRegistry, i, tbl)
+		end
+
+		local fakeThirdPersonObject = phantomForces.Modules.ThirdPersonObject:new(fakePlayer, nil, repObject)
+		rawset(repObject, "_thirdPersonObject", fakeThirdPersonObject)
+		rawset(repObject, "_alive", true)
+		fakeThirdPersonObject:equip(1, true)
+
+		return fakeThirdPersonObject
 	end
 end
 
-local localPlayerValues = {
-	isAlive = false;
-	weaponController = nil;
-}
 
-local networksend = rawget(pfModules["network"], "send")
 local weaponControllerInterface = debug.getupvalue(rawget(pfModules["WeaponControllerInterface"], "spawn"), 1)
 
+local cameraShake = rawget(pfModules["MainCameraObject"], "shake")
+local cameraSway = rawget(pfModules["MainCameraObject"], "setSway")
+local networksend = rawget(pfModules["network"], "send")
 local particlenew = rawget(pfModules["particle"], "new")
 local tPOnew = rawget(pfModules["ThirdPersonObject"], "new")
 local newWeapon = rawget(weaponControllerInterface, "new")
@@ -121,8 +198,8 @@ local function createThirdPersonObject()
 
 		fakeThirdPersonObject = tPOnew(fakePlayer, nil, fakeReplicationObject)
 		rawset(fakeReplicationObject, "_thirdPersonObject", fakeThirdPersonObject)
-		rawget(fakeThirdPersonObject, "equip")(1, true)
 		rawset(fakeReplicationObject, "_alive", true)
+		rawget(fakeThirdPersonObject, "equip")(1, true)
 	end
 
 	return fakeThirdPersonObject
@@ -137,7 +214,6 @@ local fakeThirdPersonObject = createThirdPersonObject()
 
 
 --// silent aim
-
 local dot = Vector3.zero.Dot;
 local function trajectory(acceleration, position, bulletspeed)
 	local cameraCfr = rawget(cameraObject, "_cframe")
@@ -155,7 +231,7 @@ end
 
 
 --// hooks
-local oldParticleNew; oldParticleNew = hookfunction(particlenew, function(args)
+local oldParticleNew; oldParticleNew = hookfunction(particlenew, function(args) --// silent aim
 	if args["penetrationdepth"] and closestPlayer and closestPlayer[settings.Aimbot.HitPart] then
 		args["position"] = closestPlayer[settings.Aimbot.HitPart].position
 	end
@@ -163,7 +239,28 @@ local oldParticleNew; oldParticleNew = hookfunction(particlenew, function(args)
 	return unpack(args)
 end)
 
-local oldNetworkSend; oldNetworkSend = hookfunction(networksend, function(self, num, type, ...)
+local oldShake; oldShake = hookfunction(cameraShake, function(...) --// no recoil
+	local args = {...}
+
+	if #args == 2 and typeof(args[2]) == "Vector3" then
+		args[2] = Vector3.new(args[2].X / gameSettings.RecoilControl.X, args[2].Y / gameSettings.RecoilControl.Y, args[2].Z / gameSettings.RecoilControl.Z)
+	end
+
+	return unpack(args)
+end)
+
+local oldSway; oldSway = hookfunction(cameraSway, function(...) --// no sway
+	local args = {...}
+
+	if #args == 2 and typeof(args[2]) == "number" and gameSettings.NoSway then
+		args[2] = 0
+	end
+
+	return unpack(args)
+end)
+
+
+local oldNetworkSend; oldNetworkSend = hookfunction(networksend, function(self, num, type, ...) --// networksend hook (third person)
 	local args = {...}
 
 	if type == "repupdate" then

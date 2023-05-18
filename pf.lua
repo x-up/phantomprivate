@@ -1,6 +1,7 @@
 local players = game:GetService("Players")
 local localPlayer = players.LocalPlayer
-local gameSettings = settings[game.GameId]
+local tweenService, runService = game:GetService("TweenService"), game:GetService("RunService")
+local gameSettings = getgenv().settings[game.GameId]
 
 local PhantomForces = {}; do
 	PhantomForces.__index = PhantomForces
@@ -13,16 +14,31 @@ local PhantomForces = {}; do
 		self.Hooks = {}
 		self.LocalPlayerValues = {}
 		self.Modules = self:GetModules()
-		self.Functions = {}
-		self.ThirdPersonObject = ThirdPersonObject.new();
+		self.Gravity = self.Modules.PublicSettings.bulletAcceleration;
+		self.Network = {
+			self = self.Modules.network;
+			send = self.Modules.network.send;
+		}
+		self.Functions = {
+			cameraShake = self.Modules.MainCameraObject.shake;
+			cameraSway = self.Modules.MainCameraObject.sway;
+			cameraSuppress = self.Modules.MainCameraObject.suppress;
+			particleNew = self.Modules.particle.new;
+			tPONew = self.Modules.ThirdPersonObject.new;
+			weaponNew = self.Modules.WeaponControllerInterface.new;
+		}
 
-		return self
+		self.PlayerList = debug.getupvalue(self.Modules.PlayerStatusInterface.getEntry, 1)
+
+		return self ._velspring.t
 	end
 
 	function PhantomForces:GetModule(name)
 		local cachedModule = rawget(self.ModuleCache, name); if not cachedModule then return false end;
 		return rawget(cachedModule, "module") or false
 	end
+
+	function PhantomForces:
 
 	function PhantomForces:GetModules()
 		local moduleList = {}
@@ -40,18 +56,105 @@ local PhantomForces = {}; do
 	function PhantomForces:Destroy()
 		for i,v in self.Hooks do restorefunction(v) end
 		for i,v in self do if typeof(v) == "table" then table.clear(v) v = nil end
-		self.ThirdPersonObject:Destroy()
 
 		self = nil
 	end
+end; local phantomForces = PhantomForces.new()
+
+local Client = {}; do
+	Client.__index = Client
+
+	function Client.new()
+		local self = {}; setmetatable(self, Client)
+
+		self.WeaponData = self:GetWeaponData()
+		self.ThirdPersonObject = nil
+		self.EquippedWeapon = nil
+		self.IsAlive = phantomForces.Modules.CharacterInterface.isAlive()
+		self.Random = Random.new()
+		self.SilentVector = nil
+		self.OnDespawn = phantomForces.Modules.CharacterEvents.onDespawning
+		self.OnSpawn = phantomForces.Modules.CharacterEvents.onSpawn
+
+		return self
+	end
+
+	function Client:GetWeaponData()
+		local weaponData = debug.getupvalue(phantomForces.Modules.WeaponControllerInterface.spawn, 1) or nil
+		self.WeaponData = weaponData
+		return weaponData
+	end
+
+	function Client:SetWeaponData(data)
+		self.WeaponData = data
+	end
+
+	function Client:Trajectory(origin, victimPos, bulletSpeed)
+		local origin = origin or self.Modules.MainCameraObject._cframe.Position
+		local bulletSpeed = bulletSpeed or self.Random:NextNumber(0.5, 1.5)
+		return phantomForces.Modules.physics.trajectory(origin, phantomForces.Gravity, victimPos, bulletSpeed)
+	end
+
+	function Client:Spawn()
+		self.IsAlive = true
+		self:GetWeaponData()
+	end
+
+	function Client:Despawn()
+		self.IsAlive = false
+		self:SetWeaponData(nil)
+		self.SilentVector = nil
+		self.EquippedWeapon = nil
+	end
+
+	function Client:Destroy()
+		for i,v in self do
+			if typeof(v) == "table" then table.clear(v) end
+			v = nil
+		end
+		self = nil
+	end
 end
-local phantomForces = PhantomForces.new()
 
-local ThirdPersonObject = {}; do
-	ThirdPersonObject.__index = ThirdPersonObject
+local Utils = {}; do
+	function Utils:CreateBeam(origin, endpos)
+		local timeCreated = tick()
 
-	function ThirdPersonObject.new()
-		local self = {}; setmetatable(self, ThirdPersonObject)
+		local attachment1 = Instance.new("Attachment", workspace.Terrain); attachment1.Position = origin
+		local attachment2 = Instance.new("Attachment", workspace.Terrain); attachment2.Position = endpos
+		
+		local newBeam = Instance.new("Beam")
+		newBeam.Brightness = 1
+		newBeam.LightEmission = 0.6
+		newBeam.LightInfluence = 0
+		newBeam.Texture = "rbxassetid://13478261395"
+		newBeam.TextureLength = 12
+		newBeam.TextureMode = "Wrap"
+		newBeam.TextureSpeed = 5
+		newBeam.Transparency = NumberSequence.new(0,0)
+		newBeam.ZOffset = -5
+		newBeam.Width0 = 4
+		newBeam.Width1 = 4
+		newBeam.Attachment0 = attachment1
+		newBeam.Attachment1 = attachment2
+
+		tweenService:Create(newBeam, TweenInfo.new(gameSettings.Beam.SpeedTime, Enum.EasingStyle.Circular))
+
+		task.defer(gameSettings.Beam.TransparencyTime, function() newBeam:Destroy() att1:Destroy() att2:Destroy() end)
+		task.spawn(function()
+			while newBeam and newBeam.Parent do
+				local t = math.clamp((tick() - time) - gameSettings.Beam.TransparencyTime, 0, 1)
+				newBeam.Transparency = NumberSequence.new(t, t)
+			end
+		end)
+	end
+end
+
+local FakeCharacter = {}; do
+	FakeCharacter.__index = FakeCharacter
+
+	function FakeCharacter.new()
+		local self = {}; setmetatable(self, FakeCharacter)
 
 		self.FakePlayer = self:CreatePlayer()
 		self.ReplicationObject = self:CreateReplicationObject(self.FakePlayer)
@@ -60,57 +163,60 @@ local ThirdPersonObject = {}; do
 		return self
 	end
 
-	function ThirdPersonObject:CreatePlayer()
+	function FakeCharacter:CreatePlayer()
 		local fakePlayer = Instance.new("Player")
 		fakePlayer.Name = tostring(math.random(1, 999999999))
 		fakePlayer.Parent = game:GetService("Players")
 		return fakePlayer
 	end
 
-	function ThirdPersonObject:CreateReplicationObject(fakePlayer)
+	function FakeCharacter:CreateReplicationObject(fakePlayer)
 		local repObject = phantomForces.Modules.ReplicationObject:new(fakePlayer)
-		rawset(repObject, "_player", localPlayer)
+		repObject._player = localPlayer
 		fakePlayer:Destroy()
 		return repObject
 	end
 
-	function ThirdPersonObject:CreateThirdPersonObject(repObject)
-		local weaponRegistry = phantomForces.LocalPlayerValues.weaponRegistry; if not weaponRegistry then return nil end
+	function FakeCharacter:CreateThirdPersonObject(repObject)
+		local weaponRegistry = client.WeaponData; if not weaponRegistry then return nil end
 		
-		local fakeWeaponRegistry = rawget(repObject, "_activeWeaponRegistry")
 		for i = 1, 4 do
-			local weapon = rawget(weaponRegistry, i)
-			local tbl = { weaponName = rawget(weapon, "_weaponName"); weaponData = rawget(weapon, "_weaponData"); }
+			local weapon = weaponRegistry[i]
+			local tbl = { weaponName = weapon._weaponName; weaponData = weapon._weaponData; }
 
-			local attachmentData = rawget(weapon, "_weaponAttachments"); if attachmentdata then tbl["attachmentData"] = attachmentdata end
-			local camoData = rawget(weapon, "_camoList"); if camoData then tbl["camoData"] = camoData end
+			local attachmentData = weapon._weaponAttachments; if attachmentdata then tbl["attachmentData"] = attachmentdata end
+			local camoData = weapon._camoList; if camoData then tbl["camoData"] = camoData end
 
-			rawset(fakeWeaponRegistry, i, tbl)
+			repObject._activeWeaponRegistry[i] = tbl
 		end
 
 		local fakeThirdPersonObject = phantomForces.Modules.ThirdPersonObject:new(fakePlayer, nil, repObject)
-		rawset(repObject, "_thirdPersonObject", fakeThirdPersonObject)
-		rawset(repObject, "_alive", true)
+		repObject._thirdPersonObject = fakeThirdPersonObject
+		repObject._alive = true
 		fakeThirdPersonObject:equip(1, true)
+
+		self.ThirdPersonObject = fakeThirdPersonObject
+		client.FakeCharacter.ThirdPersonObject
 
 		return fakeThirdPersonObject
 	end
+
+	function FakeCharacter:Kill()
+		if self.ThirdPersonObject and self.ThirdPersonObject._character then
+			self.ThirdPersonObject:popCharacterModel():Destroy()
+			self.ReplicationObject:despawn()
+		end
+		self.ThirdPersonObject = nil
+	end
+
+	function FakeCharacter:Destroy()
+		self:Kill()
+		if self.FakePlayer then self.FakePlayer:Destroy() end
+		for i,v in self do self[i] = nil end
+		self = nil
+	end
 end
 
-
-local weaponControllerInterface = debug.getupvalue(rawget(pfModules["WeaponControllerInterface"], "spawn"), 1)
-
-local cameraShake = rawget(pfModules["MainCameraObject"], "shake")
-local cameraSway = rawget(pfModules["MainCameraObject"], "setSway")
-local networksend = rawget(pfModules["network"], "send")
-local particlenew = rawget(pfModules["particle"], "new")
-local tPOnew = rawget(pfModules["ThirdPersonObject"], "new")
-local newWeapon = rawget(weaponControllerInterface, "new")
-
-local solve = filtergc("function", { IgnoreSyn = true;
-	Name = "solve";
-	Upvalues = { math.atan2; math.cos; math.sin; }
-}, true)
 
 
 local closestPlayer = playerObject --// this will be handled somewhere else in the main script
@@ -119,10 +225,10 @@ local closestPlayer = playerObject --// this will be handled somewhere else in t
 --// get weapon stats
 local activeWeaponRegistry;
 
-local loadFirearms; loadFirearms = hookfunction(newWeapon, function(...)
+local loadFirearms; loadFirearms = hookfunction(phantomForces.Functions.weaponNew, function(...)
 	local ret = loadFirearms(...)
 
-	activeWeaponRegistry = ret
+	Client = ret
 
 	return ret
 end)
@@ -173,86 +279,60 @@ end
 
 
 
-
-
---// third person object
-local fakeReplicationObject; do
-	local fakePlayer = Instance.new("Player")
-	fakeReplicationObject = rawget(pfModules["ReplicationObject"], "new")(fakePlayer)
-	rawset(fakeReplicationObject, "_player", localPlayer)
-end
-local function createThirdPersonObject()
-	local fakeThirdPersonObject;
-	if activeWeaponRegistry then
-		local weaponReg = rawget(fakeReplicationObject, "_activeWeaponRegistry")
-
-		for i = 1, 4 do
-			local weapon = rawget(activeWeaponRegistry, i)
-			local tbl = { weaponName = rawget(weapon, "_weaponName"); weaponData = rawget(weapon, "_weaponData"); }
-
-			local attachmentData = rawget(weapon, "_weaponAttachments"); if attachmentdata then tbl["attachmentData"] = attachmentdata end
-			local camoData = rawget(weapon, "_camoList"); if camoData then tbl["camoData"] = camoData end
-
-			rawset(weaponReg, i, tbl)
-		end
-
-		fakeThirdPersonObject = tPOnew(fakePlayer, nil, fakeReplicationObject)
-		rawset(fakeReplicationObject, "_thirdPersonObject", fakeThirdPersonObject)
-		rawset(fakeReplicationObject, "_alive", true)
-		rawget(fakeThirdPersonObject, "equip")(1, true)
-	end
-
-	return fakeThirdPersonObject
-end
-
-local fakeThirdPersonObject = createThirdPersonObject()
-
-
-
-
-
-
-
---// silent aim
-local dot = Vector3.zero.Dot;
-local function trajectory(acceleration, position, bulletspeed)
-	local cameraCfr = rawget(cameraObject, "_cframe")
-	local diff = position - cameraCfr; acceleration = -acceleration
-
-	local var1, var2, var3, var4 = solve(dot(acceleration, acceleration) / 4, 0, dot(acceleration, diff) - bulletspeed * bulletspeed, 0, dot(diff, diff))
-	local value = var1 > 0 and var1 or var2 > 0 and var2 or var3 > 0 and var3 or var4 and var4 > 0
-
-	local ret1 = acceleration * value / 2 + diff / value, value
-end
-
-
-
+--// connects
+client.OnSpawned:Connect(function() client:Spawn() end)
+client.OnDespawn:Connect(function() client:Despawn() end)
 
 
 
 --// hooks
-local oldParticleNew; oldParticleNew = hookfunction(particlenew, function(args) --// silent aim
-	if args["penetrationdepth"] and closestPlayer and closestPlayer[settings.Aimbot.HitPart] then
-		args["position"] = closestPlayer[settings.Aimbot.HitPart].position
+phantomForces.Hooks["particleNew"] = hookfunction(phantomForces.Functions.particleNew, function(particle, ...)
+
+	if gameSettings.SilentAim and not particle.thirdperson then
+		local closestPlayer, closestPos, hitPartName = aimObj.ClosestPosition, aimObj:GetHitPart()
+		local victimEntry = phantomForces.PlayerList[closestPlayer]
+
+		if not victimEntry or not closestPlayer then return phantomForces.Hooks["particleNew"](particle, ...) end
+
+		local bulletVelocity, travelTime = client:Trajectory(phantomForces.Modules.MainCameraObject._cframe.Position, closestPos, client.EquippedWeapon._weaponData["bulletspeed"])
+		if settings.Aimbot.Prediction then
+			local hitPart = entry._character[hitPartName]
+			local velocity = entry._velspring.t * travelTime
+			closestPos += velocity
+			bulletVelocity, travelTime = client:Trajectory(phantomForces.Modules.MainCameraObject._cframe.Position, closestPos, client.EquippedWeapon._weaponData["bulletspeed"])
+			bulletVelocity = bulletVelocity.Unit
+		end
+
+		particle.velocity = bulletVelocity * particle.Velocity.Magnitude
 	end
 
-	return unpack(args)
+	return phantomForces.Hooks["particleNew"](particle, ...)
 end)
 
-local oldShake; oldShake = hookfunction(cameraShake, function(...) --// no recoil
+phantomForces.Hooks["cameraShake"] = hookfunction(phantomForces.Functions.cameraShake, function(...) --// no recoil
 	local args = {...}
 
-	if #args == 2 and typeof(args[2]) == "Vector3" then
+	if gameSettings.RecoilControl and #args == 2 and typeof(args[2]) == "Vector3" then
 		args[2] = Vector3.new(args[2].X / gameSettings.RecoilControl.X, args[2].Y / gameSettings.RecoilControl.Y, args[2].Z / gameSettings.RecoilControl.Z)
 	end
 
-	return unpack(args)
+	return phantomForces.Hooks["shake"](unpack(args))
 end)
 
-local oldSway; oldSway = hookfunction(cameraSway, function(...) --// no sway
+phantomForces.Hooks["cameraSway"] = hookfunction(phantomForces.Functions.cameraSway, function(...) --// no sway
 	local args = {...}
 
-	if #args == 2 and typeof(args[2]) == "number" and gameSettings.NoSway then
+	if gameSettings.NoSway and #args == 2 and typeof(args[2]) == "number" and gameSettings.NoSway then
+		args[2] = 0
+	end
+
+	return phantomForces.Hooks["sway"](unpack(args))
+end)
+
+phantomForces.Hooks["cameraSuppress"] = hookfunction(phantomForces.Functions.cameraSuppress, function(...) --// no sway
+	local args = {...}
+
+	if gameSettings.NoCameraSuppression and #args == 2 and typeof(args[2]) == "number" and gameSettings.NoSway then
 		args[2] = 0
 	end
 
@@ -260,12 +340,24 @@ local oldSway; oldSway = hookfunction(cameraSway, function(...) --// no sway
 end)
 
 
-local oldNetworkSend; oldNetworkSend = hookfunction(networksend, function(self, num, type, ...) --// networksend hook (third person)
+phantomForces.Hooks["networkSend"] = hookfunction(phantomForces.Network.send, function(self, num, type, ...) --// networksend hook (third person)
 	local args = {...}
 
+	local fakeReplicationObject, fakeThirdPersonObject = client.FakeCharacter.ReplicationObject, client.FakeCharacter.ThirdPersonObject
+
+	if type == "debug" or type == "logmessage" then 
+		local message = args[#args]
+		if gameSettings.ServerHopOnKick and message:lower():find("kick") then
+			--server hop here
+		end
+		return 
+	end
+
 	if type == "repupdate" then
-		if localPlayerValues.isAlive then
-			if fakeReplicationObject then
+
+
+		if client.IsAlive then
+			if fakeThirdPersonObject then
 				local pos, angles = args[1], args[2]
 				local time = pfModules["network"]:getTime()
 				local _tick = tick()
@@ -297,9 +389,8 @@ local oldNetworkSend; oldNetworkSend = hookfunction(networksend, function(self, 
 			end
 		else
 			if fakeThirdPersonObject then
-                fakeThirdPersonObject:popCharacterModel():Destroy()
-                fakeReplicationObject:despawn()
-            end
+				client.FakeCharacter:Kill()
+			end
 		end
 	end
 
@@ -307,12 +398,12 @@ local oldNetworkSend; oldNetworkSend = hookfunction(networksend, function(self, 
 
 
 		if fakeThirdPersonObject then
-			fakeThirdPersonObject:popCharacterModel():Destroy()
-			fakeReplicationObject:despawn()
+			client.FakeCharacter:Kill()
 		end
 		task.spawn(function()
-			if not activeWeaponRegistry then repeat task.wait() until activeWeaponRegistry end
-			fakeThirdPersonObject = createThirdPersonObject()
+			if not client.WeaponData then repeat task.wait() until client.WeaponData end
+			FakeCharacter:CreateThirdPersonObject(FakeCharacter.ReplicationObject)
+			client.IsAlive = true
 		end)
 	end
 
@@ -339,6 +430,12 @@ local oldNetworkSend; oldNetworkSend = hookfunction(networksend, function(self, 
 
 	if type == "newbullets" then
 
+		if settings.SilentAim then
+			for i = 1, #args[1].bullets do 
+				local bullet = args[2].bullets[i]
+				bullet[1] = client.SilentVector
+			end
+		end
 
 		if fakeThirdPersonObject then
 			fakeThirdPersonObject:kickWeapon()
@@ -382,6 +479,7 @@ local oldNetworkSend; oldNetworkSend = hookfunction(networksend, function(self, 
 	if command == "equip" then
 		local weaponIndex = args[1]
 		local method = weaponIndex == 3 and "equipMelee" or "equip"
+		client.EquippedWeapon = activeWeaponRegistry[weaponIndex]
 
 		if fakeThirdPersonObject then
 			
@@ -392,15 +490,14 @@ local oldNetworkSend; oldNetworkSend = hookfunction(networksend, function(self, 
 	end
 
 	if command == "forcereset" then
-
+		client.IsAlive = false
 
 		if fakeThirdPersonObject then
-			fakeThirdPersonObject:popCharacterModel():Destroy()
-			fakeReplicationObject:despawn()
+			client.FakeCharacter:Kill()
 		end
 	end
 
 	
 
-	return oldNetworkSend(self, num, type, unpack(args))
+	return phantomForces.Hooks["networkSend"](self, num, type, unpack(args))
 end)

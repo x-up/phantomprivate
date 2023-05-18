@@ -85,17 +85,16 @@ local playerList, connects, playerTable, customCharacterFuncs, colors, games, se
 		TeamCheck = true;
 		Wallcheck = true;
 		BulletPenCheck = true;
-		EasingStyle = "Linear";
-		EasingDirection = "InOut";
+		EasingStyle = "Circular";
+		EasingDirection = "In";
 
 		AimPart = "Head";
 		HeadshotPercentage = 1;
 		RealisticMovement = true;
 
-		XRandomization = 3;
-		YRandomization = 3;
-		
-		Smoothing = 0;
+		XRandomization = {-1, 1};
+		YRandomization = {-1, 1};
+
 		WaitForZoomIn = true;
 		ZoomInDelay = 0.15;
 
@@ -264,6 +263,10 @@ local Aimbot = {}; do
 		return self
 	end
 
+	function Aimbot:lerp(a, b, c)
+		return a + (b - a) * c
+	end
+
 	function Aimbot:IsOnScreen(vector2)
 		if typeof(vector2) == "Instance" and vector2:IsA("Part") then vector2 = self:WorldToScreen(vector2) end
 		return vector2.X > 0 and vector2.X < viewportSize.X and vector2.Y > 0 and vector2.Y < viewportSize.Y
@@ -293,7 +296,7 @@ local Aimbot = {}; do
 
 		for i,v in playerList do
 			if playerList[localPlayer] ~= v.Player and v.Player and v.RootPart then
-				if phantomSettings.Wallcheck then closestVisible = self:Wallcheck(v.Player) if not #closestVisible == 0 then continue end end 
+				if settings.Wallcheck then closestVisible = self:Wallcheck(v.Player) if not #closestVisible == 0 then continue end end 
 				if v.DistanceFromMouse <= closestDistance and vis then
 					closestPlayer = v
 					closestDistance = closestDistance
@@ -310,19 +313,21 @@ local Aimbot = {}; do
 	end
 
 	function Aimbot:AimTowardsPart(part)
-		local point, visible = self:WorldToScreen(part)
+		local pos = part.Position; if settings.Aimbot.RealisticMovement then pos += Vector3.new(rand:NextNumber(-part.Size.X / 2, part.Size.X / 2), rand:NextNumber(-part.Size.Y / 2, part.Size.Y / 2), rand:NextNumber(-part.Size.Z / 2, part.Size.Z / 2)) end
+		local point, visible = self:WorldToScreen(pos)
 		if not visible then return end
 
-		local MouseLocation = self.MouseLocation
-
-		local smoothingX = math.clamp((100 - settings.Aimbot.SmoothingX) / 100, 0.01, 1)
-		local smoothingY = math.clamp((100 - settings.Aimbot.SmoothingY) / 100, 0.01, 1)
-
 		local easingStyle, easingDirection, randomization = Enum.EasingStyle[settings.Aimbot.EasingStyle], Enum.EasingDirection[settings.Aimbot.EasingDirection], settings.Aimbot.RealisticMovement
-		local alphaX = tweenSerivce:GetValue(smoothingX, easingStyle, easingDirection)
-		local alphaY = tweenSerivce:GetValue(smoothingY, easingStyle, easingDirection)
+		
+		local smoothingX, smoothingY = (100 - settings.Aimbot.SmoothingX) / 100, (100 - settings.Aimbot.SmoothingY) / 100
 
-		mousemoveabs(MouseLocation.X:lerp(alphaX) + randomization and settings.Aimbot.XRandomization or 0, mouseLocation.Y:lerp(alphaY) + randomization and settings.Aimbot.YRandomization or 0)
+		local alphaX, alphaY = tweenService:GetValue(smoothingX, easingStyle, easingDirection), tweenService:GetValue(smoothingY, easingStyle, easingDirection)
+		
+		local randomX, randomY = math.random(settings.Aimbot.XRandomization[1], settings.Aimbot.XRandomization[2]), math.random(settings.Aimbot.YRandomization[1], settings.Aimbot.YRandomization[2])
+		
+		local doRandom = settings.Aimbot.RealisticMovement and math.random(1, 100) >= 100 - settings.Aimbot.RandomChance
+		local xPos, yPos = self:lerp(self.MouseLocation.X + (doRandom and randomX or 0), point.X, alphaX), self:lerp(self.MouseLocation.Y + (doRandom and randomY or 0), point.Y, alphaY)
+		mousemoverel(self.MouseLocation.x - xPos, self.MouseLocation.Y - yPos)
 	end
 end
 local aimObj = Aimbot.new()

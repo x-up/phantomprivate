@@ -3,44 +3,39 @@ local localPlayer = players.LocalPlayer
 local tweenService, runService = game:GetService("TweenService"), game:GetService("RunService")
 local gameSettings = getgenv().settings[game.GameId]
 
-local PhantomForces = {}; do
-	PhantomForces.__index = PhantomForces
+local phantomForces, client, FakeCharacter, utils = {}, {}, {}, {}
 
-	function PhantomForces.new()
-		local self = {}; setmetatable(self, PhantomForces)
+do
+	phantomForces.__index = phantomForces
 
-		self.ModuleList = debug.getupvalue(getrenv().shared.require, 1)
-		self.ModuleCache = rawget(self.ModuleList, "_cache")
-		self.Hooks = {}
-		self.LocalPlayerValues = {}
-		self.Modules = self:GetModules()
-		self.Gravity = self.Modules.PublicSettings.bulletAcceleration;
-		self.Network = {
-			self = self.Modules.network;
-			send = self.Modules.network.send;
-		}
-		self.Functions = {
-			cameraShake = self.Modules.MainCameraObject.shake;
-			cameraSway = self.Modules.MainCameraObject.sway;
-			cameraSuppress = self.Modules.MainCameraObject.suppress;
-			particleNew = self.Modules.particle.new;
-			tPONew = self.Modules.ThirdPersonObject.new;
-			weaponNew = self.Modules.WeaponControllerInterface.new;
-		}
+	local self = {}; setmetatable(self, phantomForces)
+	self.ModuleList = debug.getupvalue(getrenv().shared.require, 1)
+	self.ModuleCache = rawget(self.ModuleList, "_cache")
+	self.Hooks = {}
+	self.LocalPlayerValues = {}
+	self.Modules = self:GetModules()
+	self.Gravity = self.Modules.PublicSettings.bulletAcceleration
+	self.Network = {
+		Module = self.Modules.network;
+		send = self.Modules.network.send;
+	}
+	self.Functions = {
+		cameraShake = self.Modules.MainCameraObject.shake;
+		cameraSway = self.Modules.MainCameraObject.sway;
+		cameraSuppress = self.Modules.MainCameraObject.suppress;
+		particleNew = self.Modules.particle.new;
+		tPONew = self.Modules.ThirdPersonObject.new;
+		weaponNew = self.Modules.WeaponControllerInterface.new;
+		getEntry = self.Modules.PlayerStatusInterface.getEntry;
+	}
+	self.PlayerList = debug.getupvalue(self.Functions.getEntry, 1)
 
-		self.PlayerList = debug.getupvalue(self.Modules.PlayerStatusInterface.getEntry, 1)
-
-		return self ._velspring.t
-	end
-
-	function PhantomForces:GetModule(name)
-		local cachedModule = rawget(self.ModuleCache, name); if not cachedModule then return false end;
+	function phantomForces:GetModule(name)
+		local cachedModule = rawget(self.ModuleCache, name) if not cachedModule then return false end
 		return rawget(cachedModule, "module") or false
 	end
 
-	function PhantomForces:
-
-	function PhantomForces:GetModules()
+	function phantomForces:GetModules()
 		local moduleList = {}
 		for i,v in getnilinstances() do
 			if v:IsA("ModuleScript") then
@@ -53,61 +48,57 @@ local PhantomForces = {}; do
 		return moduleList
 	end
 
-	function PhantomForces:Destroy()
+	function phantomForces:Destroy()
 		for i,v in self.Hooks do restorefunction(v) end
 		for i,v in self do if typeof(v) == "table" then table.clear(v) v = nil end
 
 		self = nil
 	end
-end; local phantomForces = PhantomForces.new()
+end
 
-local Client = {}; do
-	Client.__index = Client
+do
+	client.__index = client
 
-	function Client.new()
-		local self = {}; setmetatable(self, Client)
+	local self = {}; setmetatable(self, client)
+	self.WeaponData = self:GetWeaponData()
+	self.FakeCharacter = FakeCharacter.new()
+	self.ThirdPersonObject = nil
+	self.EquippedWeapon = nil
+	self.IsAlive = phantomForces.Modules.CharacterInterface.isAlive()
+	self.Random = Random.new()
+	self.SilentVector = nil
+	self.OnDespawn = phantomForces.Modules.CharacterEvents.onDespawning
+	self.OnSpawn = phantomForces.Modules.CharacterEvents.onSpawn
 
-		self.WeaponData = self:GetWeaponData()
-		self.ThirdPersonObject = nil
-		self.EquippedWeapon = nil
-		self.IsAlive = phantomForces.Modules.CharacterInterface.isAlive()
-		self.Random = Random.new()
-		self.SilentVector = nil
-		self.OnDespawn = phantomForces.Modules.CharacterEvents.onDespawning
-		self.OnSpawn = phantomForces.Modules.CharacterEvents.onSpawn
-
-		return self
-	end
-
-	function Client:GetWeaponData()
+	function client:GetWeaponData()
 		local weaponData = debug.getupvalue(phantomForces.Modules.WeaponControllerInterface.spawn, 1) or nil
 		self.WeaponData = weaponData
 		return weaponData
 	end
 
-	function Client:SetWeaponData(data)
+	function client:SetWeaponData(data)
 		self.WeaponData = data
 	end
 
-	function Client:Trajectory(origin, victimPos, bulletSpeed)
+	function client:Trajectory(origin, victimPos, bulletSpeed)
 		local origin = origin or self.Modules.MainCameraObject._cframe.Position
 		local bulletSpeed = bulletSpeed or self.Random:NextNumber(0.5, 1.5)
 		return phantomForces.Modules.physics.trajectory(origin, phantomForces.Gravity, victimPos, bulletSpeed)
 	end
 
-	function Client:Spawn()
+	function client:Spawn()
 		self.IsAlive = true
 		self:GetWeaponData()
 	end
 
-	function Client:Despawn()
+	function client:Despawn()
 		self.IsAlive = false
 		self:SetWeaponData(nil)
 		self.SilentVector = nil
 		self.EquippedWeapon = nil
 	end
 
-	function Client:Destroy()
+	function client:Destroy()
 		for i,v in self do
 			if typeof(v) == "table" then table.clear(v) end
 			v = nil
@@ -116,49 +107,15 @@ local Client = {}; do
 	end
 end
 
-local Utils = {}; do
-	function Utils:CreateBeam(origin, endpos)
-		local timeCreated = tick()
-
-		local attachment1 = Instance.new("Attachment", workspace.Terrain); attachment1.Position = origin
-		local attachment2 = Instance.new("Attachment", workspace.Terrain); attachment2.Position = endpos
-		
-		local newBeam = Instance.new("Beam")
-		newBeam.Brightness = 1
-		newBeam.LightEmission = 0.6
-		newBeam.LightInfluence = 0
-		newBeam.Texture = "rbxassetid://13478261395"
-		newBeam.TextureLength = 12
-		newBeam.TextureMode = "Wrap"
-		newBeam.TextureSpeed = 5
-		newBeam.Transparency = NumberSequence.new(0,0)
-		newBeam.ZOffset = -5
-		newBeam.Width0 = 4
-		newBeam.Width1 = 4
-		newBeam.Attachment0 = attachment1
-		newBeam.Attachment1 = attachment2
-
-		tweenService:Create(newBeam, TweenInfo.new(gameSettings.Beam.SpeedTime, Enum.EasingStyle.Circular))
-
-		task.defer(gameSettings.Beam.TransparencyTime, function() newBeam:Destroy() att1:Destroy() att2:Destroy() end)
-		task.spawn(function()
-			while newBeam and newBeam.Parent do
-				local t = math.clamp((tick() - time) - gameSettings.Beam.TransparencyTime, 0, 1)
-				newBeam.Transparency = NumberSequence.new(t, t)
-			end
-		end)
-	end
-end
-
-local FakeCharacter = {}; do
+do
 	FakeCharacter.__index = FakeCharacter
 
 	function FakeCharacter.new()
-		local self = {}; setmetatable(self, FakeCharacter)
+		local self = {} setmetatable(self, FakeCharacter)
 
 		self.FakePlayer = self:CreatePlayer()
 		self.ReplicationObject = self:CreateReplicationObject(self.FakePlayer)
-		self.ThirdPersonObject = self:CreateThirdPersonObject(self.ReplicationObject)
+		self.ThirdPersonObject = nil;
 
 		return self
 	end
@@ -178,14 +135,14 @@ local FakeCharacter = {}; do
 	end
 
 	function FakeCharacter:CreateThirdPersonObject(repObject)
-		local weaponRegistry = client.WeaponData; if not weaponRegistry then return nil end
+		local weaponRegistry = client.WeaponData if not weaponRegistry then return nil end
 		
 		for i = 1, 4 do
 			local weapon = weaponRegistry[i]
-			local tbl = { weaponName = weapon._weaponName; weaponData = weapon._weaponData; }
+			local tbl = { weaponName = weapon._weaponName weaponData = weapon._weaponData }
 
-			local attachmentData = weapon._weaponAttachments; if attachmentdata then tbl["attachmentData"] = attachmentdata end
-			local camoData = weapon._camoList; if camoData then tbl["camoData"] = camoData end
+			local attachmentData = weapon._weaponAttachments if attachmentdata then tbl["attachmentData"] = attachmentdata end
+			local camoData = weapon._camoList if camoData then tbl["camoData"] = camoData end
 
 			repObject._activeWeaponRegistry[i] = tbl
 		end
@@ -217,15 +174,103 @@ local FakeCharacter = {}; do
 	end
 end
 
+do
+	utils.__index = utils
+	
+	local self = {} setmetatable(self, utils)
+
+	function utils:CreateBeam(origin, endpos)
+		local timeCreated = tick()
+
+		local attachment1 = Instance.new("Attachment", workspace.Terrain) attachment1.Position = origin
+		local attachment2 = Instance.new("Attachment", workspace.Terrain) attachment2.Position = endpos
+		
+		local newBeam = Instance.new("Beam", workspace.Terrain)
+		newBeam.Brightness = 1
+		newBeam.LightEmission = 0.6
+		newBeam.LightInfluence = 0
+		newBeam.Texture = "rbxassetid://13478261395"
+		newBeam.TextureLength = 12
+		newBeam.TextureMode = "Wrap"
+		newBeam.TextureSpeed = 5
+		newBeam.Transparency = NumberSequence.new(0,0)
+		newBeam.ZOffset = -5
+		newBeam.Width0 = 2
+		newBeam.Width1 = 2
+		newBeam.FaceCamera = true
+		newBeam.Attachment0 = attachment1
+		newBeam.Attachment1 = attachment2
+
+		tweenService:Create(newBeam, TweenInfo.new(gameSettings.Beam.SpeedTime, Enum.EasingStyle.Circular), {TextureSpeed = 0}):Play()
+
+		task.delay(gameSettings.Beam.TransparencyTime, function() newBeam:Destroy() attachment1:Destroy() attachment2:Destroy() end)
+		task.spawn(function()
+			while newBeam and newBeam.Parent do
+				local t = math.clamp((tick() - timeCreated) - gameSettings.Beam.TransparencyTime, 0, 1)
+				newBeam.Transparency = NumberSequence.new(t, t)
+				task.wait()
+			end
+		end)
+	end
+
+	function utils:GetDepth(wall, origin, direction)
+		local RaycastParameters = RaycastParams.new()
+		RaycastParameters.FilterType = Enum.RaycastFilterType.Whitelist
+		RaycastParameters.FilterDescendantsInstances = {wall}
+		RaycastParameters.IgnoreWater = true
+
+		local hit = workspace:Raycast(origin, direction * 9e9, RaycastParameters)
+
+		if hit and hit.Instance then 
+			hit = hit.Position
+
+			local exit = workspace:Raycast(hit + (direction * 1e3), -direction.Unit * 9e9, RaycastParameters)
+			if exit and exit.Instance then
+				local depth = math.abs((hit - exit.Position).Magnitude)
+				return depth, exit
+			end
+		end
+	end
+
+	function utils:BulletCheck(part, penetrationdepth, depth)
+		local origin = camera.CFrame.Position
+		local direction = (part.Position - origin).Unit
+		depth = depth or 0
+
+		local ignore = {workspace.Terrain, workspace.Ignore, workspace.CurrentCamera, script.Parent}
+
+		local raycastParams = RaycastParams.new()
+		raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+		raycastParams.FilterDescendantsInstances = ignore
+		raycastParams.IgnoreWater = true
+
+		local hit = workspace:Raycast(origin, direction * 9e9, raycastParams)
+		if hit and hit.Instance and hit.Instance ~= part then
+			local wallDepth, exit = self:GetDepth(hit.Instance, origin, direction)
+			if (wallDepth ~= nil) then
+				origin = exit.Position
+				depth += wallDepth
+				local final = self:BulletCheck(exit.Instance, penetrationdepth, depth)
+				return final
+			end
+		elseif (hit and hit.Instance == part) then
+			return depth
+		else
+			return false
+		end
+	end
+
+end
+
 
 
 local closestPlayer = playerObject --// this will be handled somewhere else in the main script
 
 
 --// get weapon stats
-local activeWeaponRegistry;
+local activeWeaponRegistry
 
-local loadFirearms; loadFirearms = hookfunction(phantomForces.Functions.weaponNew, function(...)
+local loadFirearms loadFirearms = hookfunction(phantomForces.Functions.weaponNew, function(...)
 	local ret = loadFirearms(...)
 
 	Client = ret
@@ -233,48 +278,6 @@ local loadFirearms; loadFirearms = hookfunction(phantomForces.Functions.weaponNe
 	return ret
 end)
 
-
-
-
-
---// penetration checks
-local function raycast(origin, direction, ignorePart) --// ripped from pf
-	local ignore = {workspace.Terrain, workspace.Ignore, workspace.CurrentCamera, ignorePart}
-	local raycastParams = RaycastParams.new()
-	raycastParams.FilterDescendantsIntances = ignore
-	raycastParams.IgnoreWater = true
-
-	local ret;
-	while true do 
-		ret = workspace:Raycast(origin, direction, raycastParams)
-		local instance = ret and ret.Instance; if not ret then break end
-		if not ret or not ret.Instance or ret.Instance.CanCollide or not ret.Instance.Transparency == 1 then break end 
-		table.insert(ignore, ret.Instance);
-		raycastParams.FilterDescendantsIntances = ignore
-	end
-	return ret
-end
-
-local function bulletCheck(part, penetrationdepth)
-	local depth = 0
-	local origin, direction = camera.CFrame.Position, part.Position
-	if not origin or not direction then return depth end
-
-	local raycastParams = RaycastParams.new()
-	raycastParams.FilterType = Enum.RaycastFilterType.Whitelist
-	raycastParams.FilterDescendantsIntances = {part}
-	raycastParams.IgnoreWater = true
-
-	local hit = raycast(origin, direction)
-	while hit and hit.Instance do
-		local exitHit = workspace:Raycast(hit.Position + direction, -direction.Unit * 1e5, raycastParams)
-		local hitDepth = math.abs((hit.Position - exitHit.Position).Magnitude)
-		depth += hitDepth
-		hit = raycast(hit.Position, direction, hit.Instance)
-	end
-	
-	return depth < penetrationdepth
-end
 
 
 
@@ -364,7 +367,7 @@ phantomForces.Hooks["networkSend"] = hookfunction(phantomForces.Network.send, fu
 				local velocity = Vector3.zero
 
 				if fakeReplicationObject._receivedPosition and fakeReplicationObject._receivedFrameTime then
-					velocity = (pos - fakeReplicationObject._receivedPosition) / (_tick - fakeReplicationObject._receivedFrameTime);
+					velocity = (pos - fakeReplicationObject._receivedPosition) / (_tick - fakeReplicationObject._receivedFrameTime)
 				end
 				
 				local broken = false
@@ -375,11 +378,11 @@ phantomForces.Hooks["networkSend"] = hookfunction(phantomForces.Network.send, fu
 
 				fakeReplicationObject._smoothReplication:receive(time, _tick, {
 					t = _tick, 
-					position = pos;
-					velocity = velocity;
-					angles = angles;
-					breakcount = fakeReplicationObject._breakcount;
-				}, broken);
+					position = pos
+					velocity = velocity
+					angles = angles
+					breakcount = fakeReplicationObject._breakcount
+				}, broken)
 
 				fakeReplicationObject._updaterecieved = true
 				fakeReplicationObject._receivedPosition = pos
@@ -415,14 +418,14 @@ phantomForces.Hooks["networkSend"] = hookfunction(phantomForces.Network.send, fu
 			if weaponIndex > 2 then
 				local weaponValue = groundWeapon.Knife.Value
 				fakeReplicationObject._activeWeaponRegistry[weaponIndex] = {
-					weaponName = weaponValue;
-					weaponData = pfModules["ContentDatabase"].getWeaponData(weaponValue);
+					weaponName = weaponValue
+					weaponData = pfModules["ContentDatabase"].getWeaponData(weaponValue)
 				}
 			else
 				local weaponValue = groundWeapon.Gun.Value
 				fakeReplicationObject._activeWeaponRegistry[weaponIndex] = {
-					weaponName = weaponValue;
-					weaponData = pfModules["ContentDatabase"].getWeaponData(weaponValue);
+					weaponName = weaponValue
+					weaponData = pfModules["ContentDatabase"].getWeaponData(weaponValue)
 				}
 			end
 		end

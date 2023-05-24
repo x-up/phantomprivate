@@ -3,39 +3,49 @@ local localPlayer = players.LocalPlayer
 local tweenService, runService = game:GetService("TweenService"), game:GetService("RunService")
 local gameSettings = getgenv().settings[game.GameId]
 
-local phantomForces, client, FakeCharacter, utils = {}, {}, {}, {}
+local objects = {
+	PhantomForces = {};
+	Client = {};
+	FakeCharacter = {};
+	Utils = {};
+}
 
 do
-	phantomForces.__index = phantomForces
+	objects.PhantomForces.__index = objects.PhantomForces
 
-	local self = {}; setmetatable(self, phantomForces)
-	self.ModuleList = debug.getupvalue(getrenv().shared.require, 1)
-	self.ModuleCache = rawget(self.ModuleList, "_cache")
-	self.Hooks = {}
-	self.LocalPlayerValues = {}
-	self.Modules = self:GetModules()
-	self.Gravity = self.Modules.PublicSettings.bulletAcceleration
-	self.Network = {
-		Module = self.Modules.network;
-		send = self.Modules.network.send;
-	}
-	self.Functions = {
-		cameraShake = self.Modules.MainCameraObject.shake;
-		cameraSway = self.Modules.MainCameraObject.sway;
-		cameraSuppress = self.Modules.MainCameraObject.suppress;
-		particleNew = self.Modules.particle.new;
-		tPONew = self.Modules.ThirdPersonObject.new;
-		weaponNew = self.Modules.WeaponControllerInterface.new;
-		getEntry = self.Modules.PlayerStatusInterface.getEntry;
-	}
-	self.PlayerList = debug.getupvalue(self.Functions.getEntry, 1)
+	function objects.PhantomForces.new()
+		local self = {}; setmetatable(self, objects.phantomForces)
+		
+		self.ModuleList = debug.getupvalue(getrenv().shared.require, 1)
+		self.ModuleCache = rawget(self.ModuleList, "_cache")
+		self.Hooks = {}
+		self.LocalPlayerValues = {}
+		self.Modules = self:GetModules()
+		self.Gravity = self.Modules.PublicSettings.bulletAcceleration
+		self.Network = {
+			Module = self.Modules.network;
+			send = self.Modules.network.send;
+		}
+		self.Functions = {
+			cameraShake = self.Modules.MainCameraObject.shake;
+			cameraSway = self.Modules.MainCameraObject.sway;
+			cameraSuppress = self.Modules.MainCameraObject.suppress;
+			particleNew = self.Modules.particle.new;
+			tPONew = self.Modules.ThirdPersonObject.new;
+			weaponNew = self.Modules.WeaponControllerInterface.new;
+			getEntry = self.Modules.PlayerStatusInterface.getEntry;
+		}
+		self.PlayerList = debug.getupvalue(self.Functions.getEntry, 1)
 
-	function phantomForces:GetModule(name)
+		return self
+	end
+
+	function objects.PhantomForces:GetModule(name)
 		local cachedModule = rawget(self.ModuleCache, name) if not cachedModule then return false end
 		return rawget(cachedModule, "module") or false
 	end
 
-	function phantomForces:GetModules()
+	function objects.PhantomForces:GetModules()
 		local moduleList = {}
 		for i,v in getnilinstances() do
 			if v:IsA("ModuleScript") then
@@ -48,7 +58,7 @@ do
 		return moduleList
 	end
 
-	function phantomForces:Destroy()
+	function objects.PhantomForces:Destroy()
 		for i,v in self.Hooks do restorefunction(v) end
 		for i,v in self do if typeof(v) == "table" then table.clear(v) v = nil end
 
@@ -57,48 +67,51 @@ do
 end
 
 do
-	client.__index = client
+	objects.Client.__index = objects.Client
 
-	local self = {}; setmetatable(self, client)
-	self.WeaponData = self:GetWeaponData()
-	self.FakeCharacter = FakeCharacter.new()
-	self.ThirdPersonObject = nil
-	self.EquippedWeapon = nil
-	self.IsAlive = phantomForces.Modules.CharacterInterface.isAlive()
-	self.Random = Random.new()
-	self.SilentVector = nil
-	self.OnDespawn = phantomForces.Modules.CharacterEvents.onDespawning
-	self.OnSpawn = phantomForces.Modules.CharacterEvents.onSpawn
+	function objects.Client.new()
+		local self = {}; setmetatable(self, objects.Client)
+		self.WeaponData = self:GetWeaponData()
+		self.FakeCharacter = FakeCharacter.new()
+		self.ThirdPersonObject = nil
+		self.EquippedWeapon = nil
+		self.IsAlive = phantomForces.Modules.CharacterInterface.isAlive()
+		self.Random = Random.new()
+		self.SilentVector = nil
+		self.OnDespawn = phantomForces.Modules.CharacterEvents.onDespawning
+		self.OnSpawn = phantomForces.Modules.CharacterEvents.onSpawn
+		return self
+	end
 
-	function client:GetWeaponData()
+	function objects.Client:GetWeaponData()
 		local weaponData = debug.getupvalue(phantomForces.Modules.WeaponControllerInterface.spawn, 1) or nil
 		self.WeaponData = weaponData
 		return weaponData
 	end
 
-	function client:SetWeaponData(data)
+	function objects.Client:SetWeaponData(data)
 		self.WeaponData = data
 	end
 
-	function client:Trajectory(origin, victimPos, bulletSpeed)
+	function objects.Client:Trajectory(origin, victimPos, bulletSpeed)
 		local origin = origin or self.Modules.MainCameraObject._cframe.Position
 		local bulletSpeed = bulletSpeed or self.Random:NextNumber(0.5, 1.5)
 		return phantomForces.Modules.physics.trajectory(origin, phantomForces.Gravity, victimPos, bulletSpeed)
 	end
 
-	function client:Spawn()
+	function objects.Client:Spawn()
 		self.IsAlive = true
 		self:GetWeaponData()
 	end
 
-	function client:Despawn()
+	function objects.Client:Despawn()
 		self.IsAlive = false
 		self:SetWeaponData(nil)
 		self.SilentVector = nil
 		self.EquippedWeapon = nil
 	end
 
-	function client:Destroy()
+	function objects.Client:Destroy()
 		for i,v in self do
 			if typeof(v) == "table" then table.clear(v) end
 			v = nil
@@ -108,10 +121,10 @@ do
 end
 
 do
-	FakeCharacter.__index = FakeCharacter
+	objects.FakeCharacter.__index = objects.FakeCharacter
 
-	function FakeCharacter.new()
-		local self = {} setmetatable(self, FakeCharacter)
+	function objects.FakeCharacter.new()
+		local self = {} setmetatable(self, objects.FakeCharacter)
 
 		self.FakePlayer = self:CreatePlayer()
 		self.ReplicationObject = self:CreateReplicationObject(self.FakePlayer)
@@ -120,21 +133,21 @@ do
 		return self
 	end
 
-	function FakeCharacter:CreatePlayer()
+	function objects.FakeCharacter:CreatePlayer()
 		local fakePlayer = Instance.new("Player")
 		fakePlayer.Name = tostring(math.random(1, 999999999))
 		fakePlayer.Parent = game:GetService("Players")
 		return fakePlayer
 	end
 
-	function FakeCharacter:CreateReplicationObject(fakePlayer)
+	function objects.FakeCharacter:CreateReplicationObject(fakePlayer)
 		local repObject = phantomForces.Modules.ReplicationObject:new(fakePlayer)
 		repObject._player = localPlayer
 		fakePlayer:Destroy()
 		return repObject
 	end
 
-	function FakeCharacter:CreateThirdPersonObject(repObject)
+	function objects.FakeCharacter:CreateThirdPersonObject(repObject)
 		local weaponRegistry = client.WeaponData if not weaponRegistry then return nil end
 		
 		for i = 1, 4 do
@@ -158,7 +171,7 @@ do
 		return fakeThirdPersonObject
 	end
 
-	function FakeCharacter:Kill()
+	function objects.FakeCharacter:Kill()
 		if self.ThirdPersonObject and self.ThirdPersonObject._character then
 			self.ThirdPersonObject:popCharacterModel():Destroy()
 			self.ReplicationObject:despawn()
@@ -166,7 +179,7 @@ do
 		self.ThirdPersonObject = nil
 	end
 
-	function FakeCharacter:Destroy()
+	function objects.FakeCharacter:Destroy()
 		self:Kill()
 		if self.FakePlayer then self.FakePlayer:Destroy() end
 		for i,v in self do self[i] = nil end
@@ -175,16 +188,39 @@ do
 end
 
 do
-	utils.__index = utils
-	
-	local self = {} setmetatable(self, utils)
+	objects.Utils.__index = objects.Utils
+	function objects.Utils.new()
+		local self = {}; setmetatable(self, objects.Utils)
 
-	function utils:CreateBeam(origin, endpos)
+		self.HitscanStep = 9.5
+		self.HitscanOffsets = {
+			Vector3.new(0,0,0);
+			Vector3.new(-self.HitscanStep, self.HitscanStep, self.HitscanStep);
+			Vector3.new(-self.HitscanStep, self.HitscanStep, -self.HitscanStep);
+			Vector3.new(self.HitscanStep, self.HitscanStep, self.HitscanStep);
+			Vector3.new(self.HitscanStep, self.HitscanStep, -self.HitscanStep);
+			Vector3.new(-self.HitscanStep, -self.HitscanStep, self.HitscanStep);
+			Vector3.new(-self.HitscanStep, -self.HitscanStep, -self.HitscanStep);
+			Vector3.new(self.HitscanStep, -self.HitscanStep, self.HitscanStep);
+			Vector3.new(self.HitscanStep, -self.HitscanStep, -self.HitscanStep);
+		}
+		return self
+	end
+	
+	function objects.Utils:CloneTable(tbl)
+		local _tbl = {}
+		for i,v in tbl do
+			_tbl[i] = v
+		end
+		return _tbl
+	end
+	
+	function objects.Utils:CreateBeam(origin, endpos)
 		local timeCreated = tick()
 
 		local attachment1 = Instance.new("Attachment", workspace.Terrain) attachment1.Position = origin
 		local attachment2 = Instance.new("Attachment", workspace.Terrain) attachment2.Position = endpos
-		
+
 		local newBeam = Instance.new("Beam", workspace.Terrain)
 		newBeam.Brightness = 1
 		newBeam.LightEmission = 0.6
@@ -213,54 +249,85 @@ do
 		end)
 	end
 
-	function utils:GetDepth(wall, origin, direction)
-		local RaycastParameters = RaycastParams.new()
-		RaycastParameters.FilterType = Enum.RaycastFilterType.Whitelist
-		RaycastParameters.FilterDescendantsInstances = {wall}
-		RaycastParameters.IgnoreWater = true
+	function objects.Utils:GetDepth(wall, origin, direction, hit)
+		local raycastParams = RaycastParams.new()
+		raycastParams.FilterType = Enum.RaycastFilterType.Whitelist
+		raycastParams.FilterDescendantsInstances = {wall}
+		raycastParams.IgnoreWater = true
 
-		local hit = workspace:Raycast(origin, direction * 9e9, RaycastParameters)
+		local hit = hit or workspace:Raycast(origin, direction * 9e9, raycastParams)
 
-		if hit and hit.Instance then 
+		if (hit ~= nil and hit.Instance) then 
 			hit = hit.Position
 
-			local exit = workspace:Raycast(hit + (direction * 1e3), -direction.Unit * 9e9, RaycastParameters)
-			if exit and exit.Instance then
+			local exit = workspace:Raycast(hit + (direction * 1e3), -direction.Unit * 9e9, raycastParams)
+			if (exit ~= nil and exit.Instance) then
 				local depth = math.abs((hit - exit.Position).Magnitude)
-				return depth, exit
+				return depth, exit.Position
 			end
 		end
 	end
 
-	function utils:BulletCheck(part, penetrationdepth, depth)
-		local origin = camera.CFrame.Position
-		local direction = (part.Position - origin).Unit
-		depth = depth or 0
-
+	function objects.Utils:BulletCheck(origin, target, maxDepth, depth)
+		local origin, maxDepth = origin or camera.CFrame.Position, maxDepth or 3
+		local direction = (target.Position - origin).Unit
+		local depth = depth or 0
+		
 		local ignore = {workspace.Terrain, workspace.Ignore, workspace.CurrentCamera, script.Parent}
-
+		
 		local raycastParams = RaycastParams.new()
 		raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
 		raycastParams.FilterDescendantsInstances = ignore
 		raycastParams.IgnoreWater = true
 
 		local hit = workspace:Raycast(origin, direction * 9e9, raycastParams)
-		if hit and hit.Instance and hit.Instance ~= part then
-			local wallDepth, exit = self:GetDepth(hit.Instance, origin, direction)
-			if (wallDepth ~= nil) then
-				origin = exit.Position
-				depth += wallDepth
-				local final = self:BulletCheck(exit.Instance, penetrationdepth, depth)
+		if (hit and hit.Instance and hit.Instance ~= target) then
+			local _depth, exitPos = self:GetDepth(hit.Instance, origin, direction, hit)
+			if (_depth ~= nil) then
+				origin = exitPos
+				depth += _depth
+				local final = self:BulletCheck(origin, target, maxDepth, depth)
 				return final
 			end
-		elseif (hit and hit.Instance == part) then
-			return depth
+		elseif (hit and hit.Instance == target) then
+			return depth < maxDepth, depth
 		else
 			return false
 		end
 	end
 
+	function objects.Utils:Hitscan(origin, target, maxDepth)
+		local step, steps = 9.5, 4
+
+		local origin = origin or camera.CFrame.Position
+		local partPos = typeof(target) == "Instance" and target.Position or target
+		local offsets = self:CloneTable(self.HitscanOffsets)
+
+		for i = 0, steps do
+			for j = 0, steps do
+				local theta = (i / steps) * math.pi * 2
+				local phi = (j / steps) * math.pi
+				local x = step * math.sin(phi) * math.cos(theta)
+				local y = step * math.sin(phi) * math.sin(theta)
+				local z = step * math.cos(phi)
+				table.insert(offsets, Vector3.new(x, y, z))
+			end
+		end
+
+		for i,v in offsets do
+			local wallCheck, depth = self:BulletCheck(origin + v, target, maxDepth)
+			if wallCheck then
+				self:CreateBeam(origin + v, partPos)
+				return true, v, depth
+			else
+				continue
+			end
+		end
+
+		return false
+	end
 end
+local utils, phantomForces, client = objects.Utils.new(), objects.PhantomForces.new(), objects.Client.new()
 
 
 
